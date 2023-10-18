@@ -1,1 +1,162 @@
+#11/10/23
 
+library('dplyr')
+library('tidyverse')
+
+  inputfile <- file.choose()
+  current_dir <- getwd()
+  setwd(dirname(inputfile))
+  inputcols <- sub(".csv", "_cols_decode.csv", basename(inputfile))
+
+  files <- list.files(path = current_dir)
+
+  input <- readr::read_csv(inputfile)
+  decode <- read.csv(inputcols)
+
+  filtered_cols <-read.table("filteredlist_short.csv")
+  filtered_cols <- subset(filtered_cols, !grepl("*Variance*", filtered_cols[,1]))
+  filtered_cols <- subset(filtered_cols, !grepl("*Std*", filtered_cols[,1]))
+  
+  Samples <- decode$Image_FileName_B3tub
+  ID <- as.character(substr(Samples, 1, 6))
+  R_part <- as.character(substr(Samples, 1, 3))
+  C_part <- as.character(substr(Samples, 4, 6))
+  F_part <- as.character(substr(Samples, 7, 9))
+  
+  #split out row, column and field
+  decode_id <- cbind(decode[,-3],R_part,C_part,F_part,ID)
+  
+  #filter decode_id for fields >25 cells
+  filtered_data <- decode_id[decode_id$Image_Count_Cells > 25, ]
+  
+  #filter "input" based on above data
+  filtered_input <- input %>%
+    filter(ImageNumber %in% filtered_data$ImageNumber)
+  
+  #filter "filtered_input" based on variable list
+  selected_variables <- filtered_input %>%
+    select(all_of(filtered_cols[,1]))
+  
+  # add IDs to filtered list
+  merged_df <- merge(selected_variables,decode_id , by = "ImageNumber")
+
+
+
+  
+  ### split experiment by individual well
+  antagomirs_groupby_well <- merged_df[merged_df$C_part %in% c("c01", "c02", "c03", "c04", "c09", "c10", "c11"), ] %>% group_by(ID)
+  mimics_groupby_well <-  merged_df[merged_df$C_part %in% c("c01", "c05", "c06", "c07", "c08"), ] %>% group_by(ID)
+  ###by condition
+  antagomirs_groupby_condition <- merged_df[merged_df$C_part %in% c("c01", "c02", "c03", "c04", "c09", "c10", "c11"), ] %>% group_by(C_part)
+  mimics_groupby_condition <-  merged_df[merged_df$C_part %in% c("c01", "c05", "c06", "c07", "c08"), ] %>% group_by(C_part)
+  antagomirs_groupby_condition$Image_Count_Cells <- NULL
+  mimics_groupby_condition$Image_Count_Cells <- NULL
+
+  
+  a.well.med <- antagomirs_groupby_well %>% summarise_all(~ if(is.numeric(.)) median(.) else .[1])
+  a.well.mean <- antagomirs_groupby_well %>% summarise_all(~ if(is.numeric(.)) mean(.) else .[1])
+  a.well.sd <- antagomirs_groupby_well %>% summarise_all(~ if(is.numeric(.)) sd(.) else .[1])
+  
+  write.csv(a.well.med, file = sub(".csv", "_antagomir_well_med.csv", basename(inputfile)) , quote = T)
+  write.csv(a.well.mean, file = sub(".csv", "_antagomir_well_mean.csv", basename(inputfile)) , quote = T)
+  write.csv(a.well.sd, file = sub(".csv", "_antagomir_well_sd.csv", basename(inputfile)) , quote = T)
+  
+  m.well.med <- mimics_groupby_well %>% summarise_all(~ if(is.numeric(.)) median(.) else .[1])
+  m.well.mean <- mimics_groupby_well %>% summarise_all(~ if(is.numeric(.)) mean(.) else .[1])
+  m.well.sd <- mimics_groupby_well %>% summarise_all(~ if(is.numeric(.)) sd(.) else .[1])
+  
+  write.csv(m.well.med, file = sub(".csv", "_mimic_well_med.csv", basename(inputfile)) , quote = T)
+  write.csv(m.well.mean, file = sub(".csv", "_mimic_well_mean.csv", basename(inputfile)) , quote = T)
+  write.csv(m.well.sd, file = sub(".csv", "_mimic_well_sd.csv", basename(inputfile)) , quote = T)
+  
+  a.cond.med <- antagomirs_groupby_condition %>% summarise_all(~ if(is.numeric(.)) median(.) else .[1])
+  a.cond.mean <- antagomirs_groupby_condition %>% summarise_all(~ if(is.numeric(.)) mean(.) else .[1])
+  a.cond.sd <- antagomirs_groupby_condition %>% summarise_all(~ if(is.numeric(.)) sd(.) else .[1])
+  
+  write.csv(a.cond.med, file = sub(".csv", "_antagomir_condition_med.csv", basename(inputfile)) , quote = T)
+  write.csv(a.cond.mean, file = sub(".csv", "_antagomir_condition_mean.csv", basename(inputfile)) , quote = T)
+  write.csv(a.cond.sd, file = sub(".csv", "_antagomir_condition_sd.csv", basename(inputfile)) , quote = T)
+  
+  m.cond.med <- mimics_groupby_condition %>% summarise_all(~ if(is.numeric(.)) median(.) else .[1])
+  m.cond.mean <- mimics_groupby_condition %>% summarise_all(~ if(is.numeric(.)) mean(.) else .[1])
+  m.cond.sd <- mimics_groupby_condition %>% summarise_all(~ if(is.numeric(.)) sd(.) else .[1])
+  
+  write.csv(m.cond.med, file = sub(".csv", "_mimic_condition_med.csv", basename(inputfile)) , quote = T)
+  write.csv(m.cond.mean, file = sub(".csv", "_mimic_condition_mean.csv", basename(inputfile)) , quote = T)
+  write.csv(m.cond.sd, file = sub(".csv", "_mimic_condition_sd.csv", basename(inputfile)) , quote = T)
+  
+  
+  
+  
+  
+  
+  input_groupby_norm_antagomirs <- a.cond.med %>% 
+    mutate_if(is.numeric, funs(./.[C_part == "c02"]))
+  
+  #Log2 if numerical
+  input_log2 <- input_groupby_norm_antagomirs %>% mutate_if(is.numeric, funs(log(.,2)))
+input_log2$ImageNumber <- NULL
+input_log2$ObjectNumber <- NULL
+input_log2$Cells_Number_Object_Number <- NULL
+  
+ # write.csv(input_log2, file = sub(".csv", "_antagomirs_log2.csv", basename(inputfile)) , quote = T)
+  
+  
+  input_groupby_norm_MIMICS <- m.cond.med %>% 
+    mutate_if(is.numeric, funs(./.[C_part == "c05"]))
+  #Log2 if numerical
+  input_MIMICS_log2 <- input_groupby_norm_MIMICS %>% mutate_if(is.numeric, funs(log(.,2)))
+  input_MIMICS_log2$ImageNumber <- NULL
+  input_MIMICS_log2$ObjectNumber <- NULL
+  input_MIMICS_log2$Cells_Number_Object_Number <- NULL
+  
+ # write.csv(input_MIMICS_log2, file = sub(".csv", "_MIMICS_log2.csv", basename(inputfile)) , quote = T)
+  
+  
+  combinedoutput <- rbind(input_log2,input_MIMICS_log2)
+  write.csv(combinedoutput, file = sub(".csv", "_combined_log2.csv", basename(inputfile)) , quote = T)
+  
+  
+  
+  
+  
+  
+  
+  
+  ###by  by individual well whole plate
+  #input_groupby <- merged_df %>% group_by(ID)
+  ###by condition
+  #input_groupbySAMPLE <- merged_df %>% group_by(C_part)
+  #input_groupbySAMPLE$Image_Count_Cells <- NULL
+  
+  
+  
+  ###by  by individual well whole plate
+  #input_groupby <- merged_df %>% group_by(ID)
+  ###by condition
+  #input_groupbySAMPLE <- merged_df %>% group_by(C_part)
+  #input_groupbySAMPLE$Image_Count_Cells <- NULL
+  well.med <- input_groupby %>% summarise_all(~ if(is.numeric(.)) median(.) else .[1])
+  well.mean <- input_groupby %>% summarise_all(~ if(is.numeric(.)) mean(.) else .[1])
+  well.sd <- input_groupby %>% summarise_all(~ if(is.numeric(.)) sd(.) else .[1])
+  
+  write.csv(well.med, file = sub(".csv", "_well_med.csv", basename(inputfile)) , quote = T)
+  write.csv(well.mean, file = sub(".csv", "_well_mean.csv", basename(inputfile)) , quote = T)
+  write.csv(well.sd, file = sub(".csv", "_well_sd.csv", basename(inputfile)) , quote = T)
+  
+  sample.med <- input_groupbySAMPLE %>% summarise_all(~ if(is.numeric(.)) median(.) else .[1])
+  sample.mean <- input_groupbySAMPLE %>% summarise_all(~ if(is.numeric(.)) mean(.) else .[1])
+  sample.sd <- input_groupbySAMPLE %>% summarise_all(~ if(is.numeric(.)) sd(.) else .[1])
+  
+  write.csv(sample.med, file = sub(".csv", "_med.csv", basename(inputfile)) , quote = T)
+  write.csv(sample.mean, file = sub(".csv", "_mean.csv", basename(inputfile)) , quote = T)
+  write.csv(sample.sd, file = sub(".csv", "_sd.csv", basename(inputfile)) , quote = T)
+  
+  
+  
+  
+  
+  #extract out some data manually
+  XTR<- cbind(sample.med$ID,sample.med$Cells_Texture_DifferenceVariance_Phal_3_03_256,sample.sd$Cells_Texture_DifferenceVariance_Phal_3_03_256)
+  colnames(XTR) <- c("ID", "med", "SD")
+  
